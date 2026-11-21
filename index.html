@@ -1,1 +1,35 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#102a43"><link rel="manifest" href="manifest.webmanifest"><link rel="stylesheet" href="style.css"><title>Juntos na Palavra</title></head><body><header><small>CÉLULA ADONAI · 2027</small><h1>Juntos na Palavra</h1><p>Uma caminhada de fé, conhecimento e comunhão.</p></header><main><section class="card"><small>SEJA BEM-VINDO</small><h2>Vamos crescer juntos?</h2><p>Acompanhe sua leitura, registre o que aprendeu e compartilhe com os irmãos.</p><button id="login">G · Entrar com Google</button><small>Login Google será ativado na integração com Firebase. Explore a demonstração.</small></section><nav><button class="active" data-tab="leitura">📖 Leitura</button><button data-tab="reflexoes">✍️ Reflexões</button><button data-tab="adm">⚙️ ADM</button></nav><section id="leitura" class="card panel"><small>CRONOGRAMA ATIVO</small><h2>Novo Testamento 2027</h2><span class="pill">3 capítulos por semana</span><h3>Semana 01 · 11 a 17 de janeiro</h3><h2>Mateus 1–3</h2><p>Leia os três capítulos no seu ritmo.</p><label><input type="checkbox"> Mateus 1</label><label><input type="checkbox"> Mateus 2</label><label><input type="checkbox"> Mateus 3</label><p id="count">0 de 3 capítulos concluídos</p><div class="note">Antes da célula de sexta-feira, teremos 20 minutos para conversar sobre o que aprendemos.</div></section><section id="reflexoes" class="card panel hidden"><h2>Minha reflexão</h2><p>O que chamou sua atenção na leitura?</p><textarea id="reflection" placeholder="Escreva o que você aprendeu..."></textarea><b>Quem poderá ver?</b><label><input type="radio" name="privacy" value="private" checked> Somente eu</label><label><input type="radio" name="privacy" value="shared"> Compartilhar com os irmãos</label><button id="save">Salvar reflexão</button><p id="msg"></p><small>Na demonstração, o texto fica salvo somente neste navegador.</small></section><section id="adm" class="card panel hidden"><small>ÁREA ADMINISTRATIVA</small><h2>Painel do ADM</h2><p><b>Administrador principal</b><br>cazenet10@gmail.com</p><h3>Cronogramas</h3><div class="note">Novo Testamento 2027 · Mateus a Apocalipse · 3 capítulos por semana</div><h3>Criar novo cronograma</h3><input id="plan" placeholder="Nome do novo cronograma"><input id="desc" placeholder="Descrição"><button id="add">Adicionar à demonstração</button><div id="plans"></div><p><small>Na versão conectada, você poderá aprovar participantes e conceder acesso a outros administradores.</small></p></section></main><footer>JUNTOS NA PALAVRA · CÉLULA ADONAI</footer><script src="app.js"></script></body></html>
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#102a43"><link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css"><title>Juntos na Palavra</title>
+</head>
+<body>
+<header><small>CÉLULA ADONAI · 2027</small><h1>Juntos na Palavra</h1><p>Uma caminhada de fé, conhecimento e comunhão.</p></header>
+<main>
+  <section id="welcome" class="card">
+    <small>SEJA BEM-VINDO</small><h2>Vamos crescer juntos?</h2>
+    <p>Entre com sua conta Google para participar da caminhada de leitura bíblica.</p>
+    <button id="login">G · Entrar com Google</button><p id="auth-message" class="status" aria-live="polite"></p>
+  </section>
+
+  <section id="pending" class="card hidden">
+    <div class="status-icon">⏳</div><small>ACESSO EM ANÁLISE</small><h2>Aguardando aprovação</h2>
+    <p>Seu pedido para participar do Juntos na Palavra foi recebido. Assim que um administrador liberar seu acesso, você poderá acompanhar os planos e participar das reflexões.</p>
+    <p id="pending-email" class="muted"></p><button id="pending-refresh" class="secondary">Verificar novamente</button> <button class="link-button" id="pending-logout">Sair</button>
+  </section>
+
+  <section id="rejected" class="card hidden"><small>ACESSO NÃO LIBERADO</small><h2>Não foi possível liberar seu acesso</h2><p>Se você acredita que isso foi um engano, entre em contato com um administrador da Célula Adonai.</p><button id="rejected-logout">Sair</button></section>
+
+  <section id="app-area" class="hidden">
+    <div class="userbar"><div><b id="user-name">Participante</b><small id="user-email"></small></div><button id="logout" class="secondary small">Sair</button></div>
+    <nav><button class="active" data-tab="leitura">📖 Leitura</button><button data-tab="reflexoes">✍️ Reflexões</button><button id="admin-tab" data-tab="adm" class="hidden">⚙️ ADM</button></nav>
+    <section id="leitura" class="card panel"><small>CRONOGRAMA ATIVO</small><h2>Novo Testamento 2027</h2><span class="pill">3 capítulos por semana</span><h3>Semana 01 · 11 a 17 de janeiro</h3><h2>Mateus 1–3</h2><p>Leia os três capítulos no seu ritmo.</p><label><input type="checkbox" disabled> Mateus 1</label><label><input type="checkbox" disabled> Mateus 2</label><label><input type="checkbox" disabled> Mateus 3</label><p class="note">O acompanhamento individual das leituras será ativado na próxima etapa.</p><div class="note">Antes da célula de sexta-feira, teremos 20 minutos para conversar sobre o que aprendemos.</div></section>
+    <section id="reflexoes" class="card panel hidden"><h2>Minha reflexão</h2><p>O que chamou sua atenção na leitura?</p><textarea id="reflection" placeholder="Escreva o que você aprendeu..."></textarea><b>Quem poderá ver?</b><label><input type="radio" name="privacy" value="private" checked> Somente eu</label><label><input type="radio" name="privacy" value="shared"> Compartilhar com os irmãos</label><button id="save">Salvar reflexão</button><p id="reflection-message" class="status" aria-live="polite"></p><hr><h3>Reflexões compartilhadas</h3><div id="shared-reflections"><p class="muted">Carregando reflexões...</p></div></section>
+    <section id="adm" class="card panel hidden"><small>ÁREA ADMINISTRATIVA</small><h2>Painel do ADM</h2><p><b>Administrador principal</b><br>cazenet10@gmail.com</p><h3>Solicitações de acesso</h3><div id="pending-list"><p class="muted">Carregando solicitações...</p></div><h3>Participantes aprovados</h3><div id="approved-list"><p class="muted">Carregando participantes...</p></div><p class="note">A gestão de planos e a atribuição de novos administradores serão adicionadas nas próximas etapas.</p></section>
+  </section>
+</main>
+<footer>JUNTOS NA PALAVRA · CÉLULA ADONAI</footer>
+<script type="module" src="app.js"></script>
+</body></html>

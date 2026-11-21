@@ -1,0 +1,58 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isPrimaryAdmin() {
+      return signedIn()
+        && request.auth.token.email == 'cazenet10@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+    function isApproved() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/members/$(request.auth.uid))
+        && get(/databases/$(database)/documents/members/$(request.auth.uid)).data.status == 'approved';
+    }
+    function isAdmin() {
+      return isPrimaryAdmin() || (isApproved()
+        && get(/databases/$(database)/documents/members/$(request.auth.uid)).data.role == 'admin');
+    }
+
+    match /members/{uid} {
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.keys().hasOnly(['uid','email','displayName','photoURL','status','role','createdAt','updatedAt'])
+        && ((request.resource.data.status == 'pending' && request.resource.data.role == 'participant')
+          || (isPrimaryAdmin() && request.resource.data.status == 'approved' && request.resource.data.role == 'admin'));
+      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','role','updatedAt'])
+        && request.resource.data.status in ['pending','approved','rejected']
+        && request.resource.data.role in ['participant','admin'];
+      allow delete: if isAdmin() && uid != request.auth.uid;
+    }
+
+    match /reflections/{reflectionId} {
+      allow create: if isApproved()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.visibility in ['private','shared']
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 10000
+        && request.resource.data.keys().hasOnly(['ownerUid','ownerName','text','visibility','planId','week','createdAt']);
+      allow read: if signedIn() && (
+        resource.data.ownerUid == request.auth.uid
+        || (isApproved() && resource.data.visibility == 'shared')
+      );
+      allow update, delete: if isApproved() && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.keys().hasOnly(['ownerUid','ownerName','text','visibility','planId','week','createdAt']);
+    }
+
+    match /plans/{planId} {
+      allow read: if isApproved();
+      allow create, update, delete: if isAdmin();
+    }
+  }
+}
