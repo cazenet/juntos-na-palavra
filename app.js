@@ -107,7 +107,44 @@ $('plan-template').addEventListener('click',fillNTTemplate);
 $('create-plan-form').addEventListener('submit',createPlan);
 $('week-prev').addEventListener('click',()=>{selectedWeek=Math.max(0,selectedWeek-1);renderPlan();});$('week-next').addEventListener('click',()=>{selectedWeek++;renderPlan();});
 
-async function saveReflection(){const text=$('reflection').value.trim();if(!text){setMessage('reflection-message','Escreva sua reflexão antes de salvar.',true);return;}const visibility=document.querySelector('[name="privacy"]:checked').value;$('save').disabled=true;try{await addDoc(collection(db,'reflections'),{ownerUid:currentUser.uid,ownerName:currentUser.displayName||'Participante',text,visibility,planId:selectedPlan?.id||'',week:selectedWeek+1,createdAt:serverTimestamp()});$('reflection').value='';setMessage('reflection-message',visibility==='private'?'Reflexão privada salva com segurança.':'Reflexão compartilhada com os participantes aprovados.');await loadSharedReflections();}catch(e){console.error(e);setMessage('reflection-message',`Não foi possível salvar (${e.code||'erro'}).`,true);}finally{$('save').disabled=false;}}
-async function loadSharedReflections(){const target=$('shared-reflections');target.textContent='Carregando reflexões...';try{const q=query(collection(db,'reflections'),where('visibility','==','shared'),orderBy('createdAt','desc'),limit(30));const results=await getDocs(q);target.replaceChildren();const shared=results.docs.map(d=>d.data());if(!shared.length){target.textContent='Ainda não há reflexões compartilhadas.';return;}shared.forEach(data=>{const card=document.createElement('article');card.className='reflection-card';const author=document.createElement('b'),body=document.createElement('p');author.textContent=data.ownerName||'Participante';body.textContent=data.text||'';card.append(author,body);target.append(card);});}catch(e){console.error(e);target.textContent=`Não foi possível carregar as reflexões (${e.code||'erro'}).`;}}
-
-$('login').addEventListener('click',enterWithGoogle);$('logout').addEventListener('click',doLogout);$('pending-logout').addEventListener('click',doLogout);$('rejected-logout').addEventListener('click',doLogout);$('pending-refresh').addEventListener('click',refreshAccess);$('save').addEventListener('click',saveReflection);setupTabs();onAuthStateChanged(auth,handleUser);
+function reflectionDocId(){return `${currentUser.uid}_${selectedPlan?.id||'sem-plano'}_${selectedWeek+1}`;}
+function reflectionFields(){return ['reflection-noticed','reflection-learned','reflection-apply'];}
+async function loadMyReflection(){
+ const weekLabel=$('reflection-week');
+ if(!selectedPlan){weekLabel.textContent='Selecione um plano na aba Leitura';return;}
+ weekLabel.textContent=`${selectedPlan.title} · Semana ${selectedWeek+1}`;
+ try{
+  const snap=await getDoc(doc(db,'reflections',reflectionDocId()));
+  const data=snap.exists()?snap.data():{};
+  $('reflection-noticed').value=data.noticed||'';
+  $('reflection-learned').value=data.learned||'';
+  $('reflection-apply').value=data.application||'';
+  const privacy=document.querySelector(`[name="privacy"][value="${data.visibility||'private'}"]`);if(privacy)privacy.checked=true;
+  setMessage('reflection-message',snap.exists()?'Sua reflexão desta semana foi carregada.':'Você ainda não registrou sua reflexão desta semana.');
+ }catch(e){console.error(e);setMessage('reflection-message',`Não foi possível carregar sua reflexão (${e.code||'erro'}).`,true);}
+}
+async function saveReflection(){
+ if(!selectedPlan){setMessage('reflection-message','Selecione um plano na aba Leitura antes de registrar a reflexão.',true);return;}
+ const noticed=$('reflection-noticed').value.trim(),learned=$('reflection-learned').value.trim(),application=$('reflection-apply').value.trim();
+ if(!noticed&&!learned&&!application){setMessage('reflection-message','Preencha pelo menos uma das três perguntas.',true);return;}
+ const visibility=document.querySelector('[name="privacy"]:checked').value;$('save').disabled=true;
+ try{
+  const ref=doc(db,'reflections',reflectionDocId());
+  await setDoc(ref,{ownerUid:currentUser.uid,ownerName:currentUser.displayName||'Participante',noticed,learned,application,visibility,planId:selectedPlan.id,planTitle:selectedPlan.title,week:selectedWeek+1,updatedAt:serverTimestamp()},{merge:true});
+  setMessage('reflection-message',visibility==='private'?'Reflexão salva em modo privado.':'Reflexão compartilhada com os participantes aprovados. Você poderá editá-la durante a semana.');
+  await loadSharedReflections();
+ }catch(e){console.error(e);setMessage('reflection-message',`Não foi possível salvar (${e.code||'erro'}).`,true);}finally{$('save').disabled=false;}
+}
+async function loadSharedReflections(){
+ const target=$('shared-reflections');target.textContent='Carregando reflexões...';
+ try{
+  const q=query(collection(db,'reflections'),where('visibility','==','shared'),orderBy('updatedAt','desc'),limit(30));
+  const results=await getDocs(q);target.replaceChildren();
+  if(!results.size){target.textContent='Ainda não há reflexões compartilhadas.';return;}
+  results.docs.forEach(d=>{const data=d.data(),card=document.createElement('article');card.className='reflection-card';
+   const author=document.createElement('b'),meta=document.createElement('small');author.textContent=data.ownerName||'Participante';meta.textContent=`${data.planTitle||'Plano de leitura'} · Semana ${data.week||''}`;card.append(author,meta);
+   [['O que chamou minha atenção',data.noticed],['O que aprendi',data.learned],['Como vou aplicar',data.application]].forEach(([heading,value])=>{if(value){const h=document.createElement('b'),body=document.createElement('p');h.textContent=heading;body.textContent=value;card.append(h,body);}});target.append(card);
+  });
+ }catch(e){console.error(e);target.textContent=`Não foi possível carregar as reflexões (${e.code||'erro'}).`;}
+}
+$('login').addEventListener('click',enterWithGoogle);$('logout').addEventListener('click',doLogout);$('pending-logout').addEventListener('click',doLogout);$('rejected-logout').addEventListener('click',doLogout);$('pending-refresh').addEventListener('click',refreshAccess);$('save').addEventListener('click',saveReflection);document.querySelectorAll('nav [data-tab]').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.tab==='reflexoes')loadMyReflection();}));$('week-prev').addEventListener('click',()=>{if(document.getElementById('reflexoes').classList.contains('hidden')===false)loadMyReflection();});$('week-next').addEventListener('click',()=>{if(document.getElementById('reflexoes').classList.contains('hidden')===false)loadMyReflection();});setupTabs();onAuthStateChanged(auth,handleUser);

@@ -38,3 +38,9 @@ Lucas: 24
 Ao publicar esta versão, copie o conteúdo atualizado de `firestore.rules` para Firebase Console → Firestore Database → Regras e publique. As regras agora incluem a subcoleção `plans/{planId}/progress/{uid}` para proteger o progresso individual.
 
 Não convide participantes para usar o novo módulo de leitura até que as regras atualizadas estejam publicadas e o teste de progresso esteja concluído.
+
+
+## Reflexões semanais (V3)
+Cada participante registra uma reflexão por semana e por plano. O documento usa um ID determinístico (UID + plano + semana), permitindo editar a reflexão existente sem criar várias publicações. As respostas são divididas em três perguntas e podem ser privadas ou compartilhadas. Não há ranking ou pontuação.
+
+Após enviar os arquivos, publique também o conteúdo atualizado de `firestore.rules` no Firebase Console > Firestore Database > Regras. O Firestore pode solicitar a criação de um índice composto para a consulta de reflexões compartilhadas; siga o link de criação exibido no erro, se aparecer.

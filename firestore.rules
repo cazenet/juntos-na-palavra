@@ -32,27 +32,35 @@ service cloud.firestore {
       allow delete: if isAdmin() && uid != request.auth.uid;
     }
     match /reflections/{reflectionId} {
-      allow create: if isApproved()
-        && request.resource.data.ownerUid == request.auth.uid
-        && request.resource.data.visibility in ['private','shared']
-        && request.resource.data.text is string
-        && request.resource.data.text.size() > 0
-        && request.resource.data.text.size() <= 10000
-        && request.resource.data.keys().hasOnly(['ownerUid','ownerName','text','visibility','planId','week','createdAt']);
+      function validReflection() {
+        return request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.visibility in ['private','shared']
+          && request.resource.data.noticed is string
+          && request.resource.data.learned is string
+          && request.resource.data.application is string
+          && request.resource.data.noticed.size() <= 3000
+          && request.resource.data.learned.size() <= 3000
+          && request.resource.data.application.size() <= 3000
+          && request.resource.data.keys().hasOnly([
+            'ownerUid','ownerName','noticed','learned','application',
+            'visibility','planId','planTitle','week','updatedAt'
+          ]);
+      }
+      allow create: if isApproved() && validReflection()
+        && reflectionId == request.auth.uid + '_' + request.resource.data.planId + '_' + string(request.resource.data.week);
       allow read: if signedIn() && (
         resource.data.ownerUid == request.auth.uid
         || (isApproved() && resource.data.visibility == 'shared')
       );
-      allow update: if isApproved() && resource.data.ownerUid == request.auth.uid
+      allow update: if isApproved()
+        && resource.data.ownerUid == request.auth.uid
+        && validReflection()
         && request.resource.data.ownerUid == resource.data.ownerUid
-        && request.resource.data.keys().hasOnly(['ownerUid','ownerName','text','visibility','planId','week','createdAt'])
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ownerName','text','visibility'])
-        && request.resource.data.visibility in ['private','shared']
-        && request.resource.data.text is string
-        && request.resource.data.text.size() > 0
-        && request.resource.data.text.size() <= 10000;
+        && request.resource.data.planId == resource.data.planId
+        && request.resource.data.week == resource.data.week;
       allow delete: if isApproved() && resource.data.ownerUid == request.auth.uid;
     }
+
     match /plans/{planId} {
       allow read: if isApproved();
       allow create, update, delete: if isAdmin();
