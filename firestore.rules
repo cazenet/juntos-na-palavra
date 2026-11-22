@@ -16,7 +16,6 @@ service cloud.firestore {
       return isPrimaryAdmin() || (isApproved()
         && get(/databases/$(database)/documents/members/$(request.auth.uid)).data.role == 'admin');
     }
-
     match /members/{uid} {
       allow create: if signedIn() && request.auth.uid == uid
         && request.resource.data.uid == uid
@@ -32,7 +31,6 @@ service cloud.firestore {
         && request.resource.data.role in ['participant','admin'];
       allow delete: if isAdmin() && uid != request.auth.uid;
     }
-
     match /reflections/{reflectionId} {
       allow create: if isApproved()
         && request.resource.data.ownerUid == request.auth.uid
@@ -45,14 +43,27 @@ service cloud.firestore {
         resource.data.ownerUid == request.auth.uid
         || (isApproved() && resource.data.visibility == 'shared')
       );
-      allow update, delete: if isApproved() && resource.data.ownerUid == request.auth.uid
+      allow update: if isApproved() && resource.data.ownerUid == request.auth.uid
         && request.resource.data.ownerUid == resource.data.ownerUid
-        && request.resource.data.keys().hasOnly(['ownerUid','ownerName','text','visibility','planId','week','createdAt']);
+        && request.resource.data.keys().hasOnly(['ownerUid','ownerName','text','visibility','planId','week','createdAt'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ownerName','text','visibility'])
+        && request.resource.data.visibility in ['private','shared']
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 10000;
+      allow delete: if isApproved() && resource.data.ownerUid == request.auth.uid;
     }
-
     match /plans/{planId} {
       allow read: if isApproved();
       allow create, update, delete: if isAdmin();
+      match /progress/{uid} {
+        allow read: if isApproved() && (request.auth.uid == uid || isAdmin());
+        allow create, update: if isApproved() && request.auth.uid == uid
+          && request.resource.data.uid == uid
+          && request.resource.data.keys().hasOnly(['uid','completed','updatedAt'])
+          && request.resource.data.completed is list;
+        allow delete: if isAdmin() || (isApproved() && request.auth.uid == uid);
+      }
     }
   }
 }
