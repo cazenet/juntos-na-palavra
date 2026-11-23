@@ -141,9 +141,61 @@ async function loadSharedReflections(){
   const q=query(collection(db,'reflections'),where('visibility','==','shared'),orderBy('updatedAt','desc'),limit(30));
   const results=await getDocs(q);target.replaceChildren();
   if(!results.size){target.textContent='Ainda não há reflexões compartilhadas.';return;}
-  results.docs.forEach(d=>{const data=d.data(),card=document.createElement('article');card.className='reflection-card';
-   const author=document.createElement('b'),meta=document.createElement('small');author.textContent=data.ownerName||'Participante';meta.textContent=`${data.planTitle||'Plano de leitura'} · Semana ${data.week||''}`;card.append(author,meta);
-   [['O que chamou minha atenção',data.noticed],['O que aprendi',data.learned],['Como vou aplicar',data.application]].forEach(([heading,value])=>{if(value){const h=document.createElement('b'),body=document.createElement('p');h.textContent=heading;body.textContent=value;card.append(h,body);}});target.append(card);
+
+  // Agrupa as reflexões por plano e semana, mantendo cada participante em sequência.
+  const groups=new Map();
+  results.docs.forEach(d=>{
+   const data=d.data();
+   const planId=data.planId||data.planTitle||'plano-sem-identificacao';
+   const weekNumber=Number(data.week)||0;
+   const key=`${planId}__${weekNumber}`;
+   if(!groups.has(key))groups.set(key,{planTitle:data.planTitle||'Plano de leitura',week:weekNumber,entries:[]});
+   groups.get(key).entries.push(data);
+  });
+
+  const orderedGroups=[...groups.values()].sort((a,b)=>a.planTitle.localeCompare(b.planTitle,'pt-BR')||a.week-b.week);
+  orderedGroups.forEach(group=>{
+   const section=document.createElement('section');
+   section.className='reflection-week-group';
+   section.style.marginBottom='18px';
+
+   const heading=document.createElement('h3');
+   heading.textContent=group.week?`Semana ${group.week}`:'Semana não identificada';
+   heading.style.margin='0 0 6px';
+   section.append(heading);
+
+   const planMeta=document.createElement('small');
+   planMeta.textContent=group.planTitle;
+   planMeta.style.display='block';
+   planMeta.style.marginBottom='10px';
+   planMeta.style.color='#64748b';
+   section.append(planMeta);
+
+   group.entries.forEach((data,index)=>{
+    const entry=document.createElement('article');
+    entry.className='reflection-entry';
+    entry.style.padding='12px 4px';
+    if(index>0)entry.style.borderTop='1px solid #e2e8f0';
+
+    const author=document.createElement('b');
+    author.textContent=data.ownerName||'Participante';
+    author.style.display='block';
+    author.style.marginBottom='9px';
+    entry.append(author);
+
+    [['O que chamou minha atenção',data.noticed],['O que aprendi',data.learned],['Como vou aplicar',data.application]].forEach(([label,value])=>{
+     if(value){
+      const question=document.createElement('b');
+      const answer=document.createElement('p');
+      question.textContent=label;
+      answer.textContent=value;
+      answer.style.margin='4px 0 10px';
+      entry.append(question,answer);
+     }
+    });
+    section.append(entry);
+   });
+   target.append(section);
   });
  }catch(e){console.error(e);target.textContent=`Não foi possível carregar as reflexões (${e.code||'erro'}).`;}
 }
