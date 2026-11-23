@@ -52,7 +52,7 @@ async function handleUser(user) {
       showOnly('app-area'); $('user-name').textContent=user.displayName||'Participante'; $('user-email').textContent=user.email||'';
       if (isAdmin()) { show('admin-tab'); await loadAdminLists(); } else hide('admin-tab');
       $('dashboard-greeting').textContent=`Olá, ${(user.displayName||'irmão').split(' ')[0]}!`; if(user.photoURL){$('dashboard-photo').src=user.photoURL;show('dashboard-photo');}
-      await loadMeetingSettings(); await loadPlans(); await loadSharedReflections(); await loadDashboardLatest();
+      await loadMeetingSettings(); await loadPlans(); if(isAdmin()) await loadAdminProgress(); await loadSharedReflections(); await loadDashboardLatest();
     } else if (currentMember.status==='rejected') showOnly('rejected');
     else { showOnly('pending'); $('pending-email').textContent=user.email||''; }
   } catch(error) { console.error(error); showOnly('welcome'); setMessage('auth-message',`Não foi possível verificar seu acesso (${error.code||'erro'}). Confira as regras do Firestore.`,true); }
@@ -72,6 +72,47 @@ async function loadAdminLists(){
 }
 async function updateMemberStatus(uid,status){try{await updateDoc(doc(db,'members',uid),{status,updatedAt:serverTimestamp()});await loadAdminLists();}catch(e){console.error(e);alert(`Não foi possível atualizar (${e.code||e.message||'erro'}).`);}}
 async function revokeMemberAccess(uid,name){if(!isAdmin()||uid===currentUser.uid)return;if(!confirm(`Remover o acesso de ${name}? A pessoa não conseguirá mais entrar na área dos participantes. O histórico de leituras e reflexões será preservado.`))return;try{await updateDoc(doc(db,'members',uid),{status:'rejected',updatedAt:serverTimestamp()});await loadAdminLists();alert('Acesso removido. O histórico do participante foi preservado.');}catch(e){console.error(e);alert(`Não foi possível remover o acesso (${e.code||e.message||'erro'}).`);}}
+
+async function loadAdminProgress(){
+ if(!isAdmin())return;
+ const select=$('admin-progress-plan'),list=$('admin-progress-list'),summary=$('admin-progress-summary');
+ if(!plans.length){select.replaceChildren();list.textContent='Ainda não há planos de leitura cadastrados.';summary.textContent='';return;}
+ const previous=select.value;select.replaceChildren();
+ plans.forEach(plan=>{const option=document.createElement('option');option.value=plan.id;option.textContent=plan.title;select.append(option);});
+ select.value=plans.some(p=>p.id===previous)?previous:plans[0].id;
+ await renderAdminProgress();
+}
+async function renderAdminProgress(){
+ if(!isAdmin())return;
+ const plan=plans.find(p=>p.id===$('admin-progress-plan').value);const list=$('admin-progress-list'),summary=$('admin-progress-summary');
+ if(!plan){list.textContent='Selecione um plano.';summary.textContent='';return;}
+ list.textContent='Carregando progresso dos participantes...';summary.textContent='';
+ try{
+  const [membersSnap,progressSnap]=await Promise.all([
+   getDocs(query(collection(db,'members'),where('status','==','approved'))),
+   getDocs(collection(db,'plans',plan.id,'progress'))
+  ]);
+  const members=membersSnap.docs.map(d=>({uid:d.id,...d.data()})).filter(m=>m.role!=='admin');
+  const progressByUid=new Map(progressSnap.docs.map(d=>[d.id,new Set(d.data().completed||[])]));
+  const chapters=buildChapterList(plan.bookCounts||[]),perWeek=Math.max(1,Number(plan.chaptersPerWeek)||3),totalWeeks=Math.ceil(chapters.length/perWeek);
+  let complete=0,started=0,notStarted=0;list.replaceChildren();
+  if(!members.length){list.textContent='Ainda não há participantes aprovados.';return;}
+  members.sort((a,b)=>(a.displayName||a.email||'').localeCompare(b.displayName||b.email||'','pt-BR'));
+  members.forEach(member=>{
+   const done=progressByUid.get(member.uid)||new Set(),doneCount=chapters.filter(ch=>done.has(`${ch.book}|${ch.chapter}`)).length;
+   let currentWeek=0;for(let w=0;w<totalWeeks;w++){const items=chapters.slice(w*perWeek,(w+1)*perWeek);if(items.every(ch=>done.has(`${ch.book}|${ch.chapter}`)))currentWeek=w+1;else break;}
+   const pct=chapters.length?Math.round(doneCount/chapters.length*100):0;
+   const status=doneCount===chapters.length&&chapters.length?'Plano concluído':doneCount?'Em andamento':'Ainda não iniciou';
+   if(status==='Plano concluído')complete++;else if(doneCount)started++;else notStarted++;
+   const row=document.createElement('article');row.className='admin-progress-row';
+   const top=document.createElement('div');top.className='admin-progress-top';const name=document.createElement('b');name.textContent=member.displayName||member.email||'Participante';const count=document.createElement('span');count.textContent=`${doneCount}/${chapters.length} capítulos`;top.append(name,count);
+   const track=document.createElement('div');track.className='progress-track';const bar=document.createElement('div');bar.style.width=`${pct}%`;track.append(bar);
+   const detail=document.createElement('small');detail.className='muted';detail.textContent=`${status} · ${pct}%${currentWeek?` · ${currentWeek} semana(s) concluída(s)`:''}`;
+   row.append(top,track,detail);list.append(row);
+  });
+  summary.textContent=`${complete} concluíram · ${started} em andamento · ${notStarted} ainda não iniciaram`;
+ }catch(e){console.error(e);list.textContent=`Não foi possível carregar o acompanhamento (${e.code||'erro'}).`;summary.textContent='Verifique as regras do Firestore.';}
+}
 
 function parseBookLines(value){return value.split('\n').map(line=>line.trim()).filter(Boolean).map(line=>{const parts=line.split(':');const name=parts[0]?.trim(),chapters=Number(parts[1]);if(!name||!Number.isInteger(chapters)||chapters<1||chapters>150)throw new Error(`Linha inválida: "${line}". Use Livro: número de capítulos.`);return {name,chapters};});}
 function buildChapterList(bookCounts){const list=[];bookCounts.forEach(book=>{for(let n=1;n<=book.chapters;n++)list.push({book:book.name,chapter:n});});return list;}
@@ -101,7 +142,7 @@ function renderPlan(){
  const done=completed.size,total=chapters.length;$('progress-label').textContent=`${done} de ${total} capítulos concluídos`; $('progress-bar').style.width=`${total?Math.min(100,done/total*100):0}%`;
  $('week-prev').disabled=selectedWeek===0;const atLastWeek=selectedWeek>=totalWeeks-1,weekDone=isWeekComplete(p,selectedWeek);$('week-next').disabled=atLastWeek||!weekDone;$('week-next').title=(!atLastWeek&&!weekDone)?'Conclua todos os capítulos desta semana para avançar.':'';renderDashboard();
 }
-async function toggleChapter(key,checked){const before=new Set(completed);if(checked)completed.add(key);else completed.delete(key);renderPlan();try{await setDoc(doc(db,'plans',selectedPlan.id,'progress',currentUser.uid),{uid:currentUser.uid,completed:[...completed],updatedAt:serverTimestamp()},{merge:true});if(!isWeekComplete())setMessage('reflection-message','Conclua os três capítulos da semana para liberar sua reflexão.');}catch(e){completed=before;renderPlan();console.error(e);alert(`Não foi possível salvar seu progresso (${e.code||'erro'}).`);}}
+async function toggleChapter(key,checked){const before=new Set(completed);if(checked)completed.add(key);else completed.delete(key);renderPlan();try{await setDoc(doc(db,'plans',selectedPlan.id,'progress',currentUser.uid),{uid:currentUser.uid,completed:[...completed],updatedAt:serverTimestamp()},{merge:true});if(!isWeekComplete())setMessage('reflection-message','Conclua os três capítulos da semana para liberar sua reflexão.');if(isAdmin())await renderAdminProgress();}catch(e){completed=before;renderPlan();console.error(e);alert(`Não foi possível salvar seu progresso (${e.code||'erro'}).`);}}
 const MEETING_DOC = '_app_settings';
 function localISODate(date=new Date()){const y=date.getFullYear(),m=String(date.getMonth()+1).padStart(2,'0'),d=String(date.getDate()).padStart(2,'0');return `${y}-${m}-${d}`;}
 function renderDashboard(){
@@ -122,6 +163,8 @@ $('dashboard-continue').addEventListener('click',()=>document.querySelector('nav
 $('dashboard-reflection').addEventListener('click',()=>document.querySelector('nav [data-tab="reflexoes"]').click());
 $('dashboard-community').addEventListener('click',()=>document.querySelector('nav [data-tab="reflexoes"]').click());
 $('meeting-form').addEventListener('submit',saveMeeting);
+$('admin-progress-plan').addEventListener('change',renderAdminProgress);
+$('admin-progress-refresh').addEventListener('click',renderAdminProgress);
 
 async function createPlan(event){event.preventDefault();if(!isAdmin())return;const btn=$('create-plan');btn.disabled=true;setMessage('plan-message','Salvando plano...');
  try{const bookCounts=parseBookLines($('plan-books').value);if(!bookCounts.length)throw new Error('Informe ao menos um livro e sua quantidade de capítulos.');const startDate=$('plan-start').value;if(!startDate)throw new Error('Informe a data de início.');const chaptersPerWeek=Number($('plan-rate').value);if(!Number.isInteger(chaptersPerWeek)||chaptersPerWeek<1||chaptersPerWeek>30)throw new Error('Informe de 1 a 30 capítulos por semana.');
@@ -248,4 +291,4 @@ async function loadSharedReflections(){
   });
  }catch(e){console.error(e);target.textContent=`Não foi possível carregar as reflexões (${e.code||'erro'}).`;}
 }
-$('login').addEventListener('click',enterWithGoogle);$('logout').addEventListener('click',doLogout);$('pending-logout').addEventListener('click',doLogout);$('rejected-logout').addEventListener('click',doLogout);$('pending-refresh').addEventListener('click',refreshAccess);$('save').addEventListener('click',saveReflection);$('reflection-start').addEventListener('click',()=>{if(!isWeekComplete()){setMessage('reflection-message','Marque os três capítulos da semana como lidos antes de escrever sua reflexão.',true);return;}openReflectionEditor();});$('reflection-cancel').addEventListener('click',()=>{closeReflectionEditor();setMessage('reflection-message','Edição cancelada.');});document.querySelectorAll('nav [data-tab]').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.tab==='reflexoes')loadMyReflection();}));$('week-prev').addEventListener('click',()=>{if(document.getElementById('reflexoes').classList.contains('hidden')===false)loadMyReflection();});$('week-next').addEventListener('click',()=>{if(document.getElementById('reflexoes').classList.contains('hidden')===false)loadMyReflection();});setupTabs();onAuthStateChanged(auth,handleUser);
+$('login').addEventListener('click',enterWithGoogle);$('logout').addEventListener('click',doLogout);$('pending-logout').addEventListener('click',doLogout);$('rejected-logout').addEventListener('click',doLogout);$('pending-refresh').addEventListener('click',refreshAccess);$('save').addEventListener('click',saveReflection);$('reflection-start').addEventListener('click',()=>{if(!isWeekComplete()){setMessage('reflection-message','Marque os três capítulos da semana como lidos antes de escrever sua reflexão.',true);return;}openReflectionEditor();});$('reflection-cancel').addEventListener('click',()=>{closeReflectionEditor();setMessage('reflection-message','Edição cancelada.');});document.querySelectorAll('nav [data-tab]').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.tab==='reflexoes')loadMyReflection();if(b.dataset.tab==='adm'&&isAdmin())loadAdminProgress();}));$('week-prev').addEventListener('click',()=>{if(document.getElementById('reflexoes').classList.contains('hidden')===false)loadMyReflection();});$('week-next').addEventListener('click',()=>{if(document.getElementById('reflexoes').classList.contains('hidden')===false)loadMyReflection();});setupTabs();onAuthStateChanged(auth,handleUser);
