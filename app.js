@@ -153,7 +153,7 @@ async function loadSharedReflections(){
    groups.get(key).entries.push(data);
   });
 
-  const orderedGroups=[...groups.values()].sort((a,b)=>a.planTitle.localeCompare(b.planTitle,'pt-BR')||a.week-b.week);
+  const orderedGroups=[...groups.values()].sort((a,b)=>a.planTitle.localeCompare(b.planTitle,'pt-BR')||b.week-a.week);
   orderedGroups.forEach(group=>{
    const section=document.createElement('section');
    section.className='reflection-week-group';
