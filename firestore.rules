@@ -52,6 +52,10 @@ service cloud.firestore {
       allow delete: if isApproved() && resource.data.ownerUid == request.auth.uid;
 
       match /comments/{commentId} {
+        function parentIsOwnedByCaller() {
+          return exists(/databases/$(database)/documents/reflections/$(reflectionId))
+            && get(/databases/$(database)/documents/reflections/$(reflectionId)).data.ownerUid == request.auth.uid;
+        }
         function parentIsShared() {
           return exists(/databases/$(database)/documents/reflections/$(reflectionId))
             && get(/databases/$(database)/documents/reflections/$(reflectionId)).data.visibility == 'shared';
@@ -65,7 +69,7 @@ service cloud.firestore {
           && request.resource.data.text.size() <= 1000
           && request.resource.data.keys().hasOnly(['ownerUid','ownerName','text','createdAt']);
         allow update: if false;
-        allow delete: if isApproved() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+        allow delete: if isApproved() && (resource.data.ownerUid == request.auth.uid || isAdmin() || parentIsOwnedByCaller());
       }
     }
     match /plans/{planId} {

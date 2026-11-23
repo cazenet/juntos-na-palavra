@@ -88,6 +88,8 @@ async function selectPlan(plan){selectedPlan=plan;selectedWeek=0;completed=new S
  try{const snap=await getDoc(doc(db,'plans',plan.id,'progress',currentUser.uid));if(snap.exists())completed=new Set(snap.data().completed||[]);}catch(e){console.error(e);}
  renderPlan();
 }
+function getWeekItems(plan=selectedPlan, week=selectedWeek){const chapters=buildChapterList(plan?.bookCounts||[]),perWeek=Math.max(1,Number(plan?.chaptersPerWeek)||3);return chapters.slice(week*perWeek,(week+1)*perWeek);}
+function isWeekComplete(plan=selectedPlan, week=selectedWeek){const items=getWeekItems(plan,week);return items.length>0 && items.every(item=>completed.has(`${item.book}|${item.chapter}`));}
 function renderPlan(){
  const p=selectedPlan;if(!p)return;const chapters=buildChapterList(p.bookCounts||[]),perWeek=Math.max(1,Number(p.chaptersPerWeek)||3),totalWeeks=Math.ceil(chapters.length/perWeek);selectedWeek=Math.min(selectedWeek,Math.max(0,totalWeeks-1));
  $('reading-title').textContent=p.title;$('reading-description').textContent=p.description||'';$('reading-meta').textContent=`${perWeek} capítulos por semana · ${totalWeeks} semanas · início ${formatDate(new Date(`${p.startDate}T12:00:00Z`))}`;
@@ -96,9 +98,9 @@ function renderPlan(){
  if(!items.length){list.textContent='Não há capítulos nesta semana.';return;}
  items.forEach(item=>{const key=`${item.book}|${item.chapter}`,label=document.createElement('label'),cb=document.createElement('input'),txt=document.createElement('span');cb.type='checkbox';cb.checked=completed.has(key);txt.textContent=`${item.book} ${item.chapter}`;if(cb.checked)txt.className='done';cb.addEventListener('change',()=>toggleChapter(key,cb.checked));label.append(cb,txt);list.append(label);});
  const done=completed.size,total=chapters.length;$('progress-label').textContent=`${done} de ${total} capítulos concluídos`; $('progress-bar').style.width=`${total?Math.min(100,done/total*100):0}%`;
- $('week-prev').disabled=selectedWeek===0;$('week-next').disabled=selectedWeek>=totalWeeks-1;renderDashboard();
+ $('week-prev').disabled=selectedWeek===0;const atLastWeek=selectedWeek>=totalWeeks-1,weekDone=isWeekComplete(p,selectedWeek);$('week-next').disabled=atLastWeek||!weekDone;$('week-next').title=(!atLastWeek&&!weekDone)?'Conclua todos os capítulos desta semana para avançar.':'';renderDashboard();
 }
-async function toggleChapter(key,checked){if(checked)completed.add(key);else completed.delete(key);renderPlan();try{await setDoc(doc(db,'plans',selectedPlan.id,'progress',currentUser.uid),{uid:currentUser.uid,completed:[...completed],updatedAt:serverTimestamp()},{merge:true});}catch(e){console.error(e);alert(`Não foi possível salvar seu progresso (${e.code||'erro'}).`);}}
+async function toggleChapter(key,checked){const before=new Set(completed);if(checked)completed.add(key);else completed.delete(key);renderPlan();try{await setDoc(doc(db,'plans',selectedPlan.id,'progress',currentUser.uid),{uid:currentUser.uid,completed:[...completed],updatedAt:serverTimestamp()},{merge:true});if(!isWeekComplete())setMessage('reflection-message','Conclua os três capítulos da semana para liberar sua reflexão.');}catch(e){completed=before;renderPlan();console.error(e);alert(`Não foi possível salvar seu progresso (${e.code||'erro'}).`);}}
 const MEETING_DOC = '_app_settings';
 function localISODate(date=new Date()){const y=date.getFullYear(),m=String(date.getMonth()+1).padStart(2,'0'),d=String(date.getDate()).padStart(2,'0');return `${y}-${m}-${d}`;}
 function renderDashboard(){
@@ -127,7 +129,7 @@ async function createPlan(event){event.preventDefault();if(!isAdmin())return;con
 function fillNTTemplate(){ $('plan-title').value='Novo Testamento 2027';$('plan-description').value='Uma caminhada pelo Novo Testamento, de Mateus a Apocalipse. Três capítulos por semana, no ritmo de cada participante.';$('plan-start').value='2027-01-11';$('plan-rate').value='3';$('plan-books').value=NT_BOOKS.map(([n,c])=>`${n}: ${c}`).join('\n'); }
 $('plan-template').addEventListener('click',fillNTTemplate);
 $('create-plan-form').addEventListener('submit',createPlan);
-$('week-prev').addEventListener('click',()=>{selectedWeek=Math.max(0,selectedWeek-1);renderPlan();});$('week-next').addEventListener('click',()=>{selectedWeek++;renderPlan();});
+$('week-prev').addEventListener('click',()=>{selectedWeek=Math.max(0,selectedWeek-1);renderPlan();});$('week-next').addEventListener('click',()=>{if(!isWeekComplete()){alert('Para avançar, marque todos os capítulos desta semana como lidos.');return;}selectedWeek++;renderPlan();if(!document.getElementById('reflexoes').classList.contains('hidden'))loadMyReflection();});
 
 function reflectionDocId(){return `${currentUser.uid}_${selectedPlan?.id||'sem-plano'}_${selectedWeek+1}`;}
 let editingReflectionId=null;
@@ -142,9 +144,14 @@ function openReflectionEditor(data={},id=null){
 async function deleteReflection(reflectionId){
  if(!confirm('Tem certeza de que deseja excluir esta reflexão? Esta ação não poderá ser desfeita.'))return;
  try{
-  const comments=await getDocs(collection(db,'reflections',reflectionId,'comments'));
-  for(const comment of comments.docs) await deleteDoc(comment.ref);
-  await deleteDoc(doc(db,'reflections',reflectionId));
+  const reflectionRef=doc(db,'reflections',reflectionId),reflectionSnap=await getDoc(reflectionRef);
+  if(!reflectionSnap.exists())throw new Error('Reflexão não encontrada.');
+  if(reflectionSnap.data().ownerUid!==currentUser.uid&&!isAdmin())throw new Error('Você não tem permissão para excluir esta reflexão.');
+  if(reflectionSnap.data().visibility==='shared'){
+   const comments=await getDocs(collection(db,'reflections',reflectionId,'comments'));
+   for(const comment of comments.docs) await deleteDoc(comment.ref);
+  }
+  await deleteDoc(reflectionRef);
   if(reflectionId===reflectionDocId()){ $('my-reflection-current').replaceChildren();closeReflectionEditor(); }
   setMessage('reflection-message','Reflexão excluída.');await loadMyReflection();await loadSharedReflections();await loadDashboardLatest();
  }catch(e){console.error(e);alert(`Não foi possível excluir a reflexão (${e.code||'erro'}).`);}
@@ -153,9 +160,11 @@ async function loadMyReflection(){
  const weekLabel=$('reflection-week'),current=$('my-reflection-current');current.replaceChildren();closeReflectionEditor();
  if(!selectedPlan){weekLabel.textContent='Selecione um plano na aba Leitura';hide('reflection-start');return;}
  weekLabel.textContent=`${selectedPlan.title} · Semana ${selectedWeek+1}`;
+ const weekDone=isWeekComplete();$('reflection-start').disabled=!weekDone;$('reflection-start').textContent=weekDone?'Escrever minha reflexão':'Conclua os 3 capítulos para liberar a reflexão';
+ if(!weekDone){hide('reflection-editor');show('reflection-start');setMessage('reflection-message','Sua reflexão será liberada depois que você marcar todos os capítulos desta semana como lidos.');}
  try{
   const snap=await getDoc(doc(db,'reflections',reflectionDocId()));
-  if(!snap.exists()){show('reflection-start');setMessage('reflection-message','Você ainda não publicou sua reflexão desta semana.');return;}
+  if(!snap.exists()){show('reflection-start');if(weekDone)setMessage('reflection-message','Você ainda não publicou sua reflexão desta semana.');return;}
   const data=snap.data();hide('reflection-start');
   const heading=document.createElement('b');heading.textContent='Sua reflexão desta semana';
   const privacy=document.createElement('small');privacy.textContent=data.visibility==='shared'?'Compartilhada com os irmãos':'Visível somente para você';privacy.style.display='block';privacy.style.color='#64748b';current.append(heading,privacy);
@@ -166,6 +175,7 @@ async function loadMyReflection(){
 }
 async function saveReflection(){
  if(!selectedPlan){setMessage('reflection-message','Selecione um plano na aba Leitura antes de registrar a reflexão.',true);return;}
+ if(!editingReflectionId&&!isWeekComplete()){setMessage('reflection-message','Marque todos os capítulos desta semana como lidos antes de publicar sua reflexão.',true);return;}
  const noticed=$('reflection-noticed').value.trim(),learned=$('reflection-learned').value.trim(),application=$('reflection-apply').value.trim();
  if(!noticed&&!learned&&!application){setMessage('reflection-message','Preencha pelo menos uma das três perguntas.',true);return;}
  const visibility=document.querySelector('[name="privacy"]:checked').value;$('save').disabled=true;
@@ -237,4 +247,4 @@ async function loadSharedReflections(){
   });
  }catch(e){console.error(e);target.textContent=`Não foi possível carregar as reflexões (${e.code||'erro'}).`;}
 }
-$('login').addEventListener('click',enterWithGoogle);$('logout').addEventListener('click',doLogout);$('pending-logout').addEventListener('click',doLogout);$('rejected-logout').addEventListener('click',doLogout);$('pending-refresh').addEventListener('click',refreshAccess);$('save').addEventListener('click',saveReflection);$('reflection-start').addEventListener('click',()=>openReflectionEditor());$('reflection-cancel').addEventListener('click',()=>{closeReflectionEditor();setMessage('reflection-message','Edição cancelada.');});document.querySelectorAll('nav [data-tab]').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.tab==='reflexoes')loadMyReflection();}));$('week-prev').addEventListener('click',()=>{if(document.getElementById('reflexoes').classList.contains('hidden')===false)loadMyReflection();});$('week-next').addEventListener('click',()=>{if(document.getElementById('reflexoes').classList.contains('hidden')===false)loadMyReflection();});setupTabs();onAuthStateChanged(auth,handleUser);
+$('login').addEventListener('click',enterWithGoogle);$('logout').addEventListener('click',doLogout);$('pending-logout').addEventListener('click',doLogout);$('rejected-logout').addEventListener('click',doLogout);$('pending-refresh').addEventListener('click',refreshAccess);$('save').addEventListener('click',saveReflection);$('reflection-start').addEventListener('click',()=>{if(!isWeekComplete()){setMessage('reflection-message','Marque os três capítulos da semana como lidos antes de escrever sua reflexão.',true);return;}openReflectionEditor();});$('reflection-cancel').addEventListener('click',()=>{closeReflectionEditor();setMessage('reflection-message','Edição cancelada.');});document.querySelectorAll('nav [data-tab]').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.tab==='reflexoes')loadMyReflection();}));$('week-prev').addEventListener('click',()=>{if(document.getElementById('reflexoes').classList.contains('hidden')===false)loadMyReflection();});$('week-next').addEventListener('click',()=>{if(document.getElementById('reflexoes').classList.contains('hidden')===false)loadMyReflection();});setupTabs();onAuthStateChanged(auth,handleUser);
