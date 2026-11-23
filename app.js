@@ -130,19 +130,38 @@ $('create-plan-form').addEventListener('submit',createPlan);
 $('week-prev').addEventListener('click',()=>{selectedWeek=Math.max(0,selectedWeek-1);renderPlan();});$('week-next').addEventListener('click',()=>{selectedWeek++;renderPlan();});
 
 function reflectionDocId(){return `${currentUser.uid}_${selectedPlan?.id||'sem-plano'}_${selectedWeek+1}`;}
+let editingReflectionId=null;
 function reflectionFields(){return ['reflection-noticed','reflection-learned','reflection-apply'];}
+function closeReflectionEditor(){hide('reflection-editor');show('reflection-start');editingReflectionId=null;$('save').textContent='Publicar reflexão';}
+function openReflectionEditor(data={},id=null){
+ editingReflectionId=id;
+ $('reflection-noticed').value=data.noticed||'';$('reflection-learned').value=data.learned||'';$('reflection-apply').value=data.application||'';
+ const privacy=document.querySelector(`[name="privacy"][value="${data.visibility||'private'}"]`);if(privacy)privacy.checked=true;
+ $('save').textContent=id?'Salvar alterações':'Publicar reflexão';hide('reflection-start');show('reflection-editor');$('reflection-noticed').focus();
+}
+async function deleteReflection(reflectionId){
+ if(!confirm('Tem certeza de que deseja excluir esta reflexão? Esta ação não poderá ser desfeita.'))return;
+ try{
+  const comments=await getDocs(collection(db,'reflections',reflectionId,'comments'));
+  for(const comment of comments.docs) await deleteDoc(comment.ref);
+  await deleteDoc(doc(db,'reflections',reflectionId));
+  if(reflectionId===reflectionDocId()){ $('my-reflection-current').replaceChildren();closeReflectionEditor(); }
+  setMessage('reflection-message','Reflexão excluída.');await loadMyReflection();await loadSharedReflections();await loadDashboardLatest();
+ }catch(e){console.error(e);alert(`Não foi possível excluir a reflexão (${e.code||'erro'}).`);}
+}
 async function loadMyReflection(){
- const weekLabel=$('reflection-week');
- if(!selectedPlan){weekLabel.textContent='Selecione um plano na aba Leitura';return;}
+ const weekLabel=$('reflection-week'),current=$('my-reflection-current');current.replaceChildren();closeReflectionEditor();
+ if(!selectedPlan){weekLabel.textContent='Selecione um plano na aba Leitura';hide('reflection-start');return;}
  weekLabel.textContent=`${selectedPlan.title} · Semana ${selectedWeek+1}`;
  try{
   const snap=await getDoc(doc(db,'reflections',reflectionDocId()));
-  const data=snap.exists()?snap.data():{};
-  $('reflection-noticed').value=data.noticed||'';
-  $('reflection-learned').value=data.learned||'';
-  $('reflection-apply').value=data.application||'';
-  const privacy=document.querySelector(`[name="privacy"][value="${data.visibility||'private'}"]`);if(privacy)privacy.checked=true;
-  setMessage('reflection-message',snap.exists()?'Sua reflexão desta semana foi carregada.':'Você ainda não registrou sua reflexão desta semana.');
+  if(!snap.exists()){show('reflection-start');setMessage('reflection-message','Você ainda não publicou sua reflexão desta semana.');return;}
+  const data=snap.data();hide('reflection-start');
+  const heading=document.createElement('b');heading.textContent='Sua reflexão desta semana';
+  const privacy=document.createElement('small');privacy.textContent=data.visibility==='shared'?'Compartilhada com os irmãos':'Visível somente para você';privacy.style.display='block';privacy.style.color='#64748b';current.append(heading,privacy);
+  [['O que chamou minha atenção',data.noticed],['O que aprendi',data.learned],['Como posso aplicar',data.application]].forEach(([label,value])=>{if(value){const q=document.createElement('b'),a=document.createElement('p');q.textContent=label;a.textContent=value;a.style.margin='4px 0 10px';current.append(q,a);}});
+  const actions=document.createElement('div');actions.className='form-actions';const edit=document.createElement('button'),remove=document.createElement('button');edit.type='button';edit.textContent='Editar';remove.type='button';remove.textContent='Excluir';remove.className='secondary';edit.onclick=()=>openReflectionEditor(data,snap.id);remove.onclick=()=>deleteReflection(snap.id);actions.append(edit,remove);current.append(actions);
+  setMessage('reflection-message','Sua reflexão já está registrada. Você pode editá-la ou excluí-la.');
  }catch(e){console.error(e);setMessage('reflection-message',`Não foi possível carregar sua reflexão (${e.code||'erro'}).`,true);}
 }
 async function saveReflection(){
@@ -151,10 +170,10 @@ async function saveReflection(){
  if(!noticed&&!learned&&!application){setMessage('reflection-message','Preencha pelo menos uma das três perguntas.',true);return;}
  const visibility=document.querySelector('[name="privacy"]:checked').value;$('save').disabled=true;
  try{
-  const ref=doc(db,'reflections',reflectionDocId());
+  const ref=doc(db,'reflections',editingReflectionId||reflectionDocId());
   await setDoc(ref,{ownerUid:currentUser.uid,ownerName:currentUser.displayName||'Participante',noticed,learned,application,visibility,planId:selectedPlan.id,planTitle:selectedPlan.title,week:selectedWeek+1,updatedAt:serverTimestamp()},{merge:true});
-  setMessage('reflection-message',visibility==='private'?'Reflexão salva em modo privado.':'Reflexão compartilhada com os participantes aprovados. Você poderá editá-la durante a semana.');
-  await loadSharedReflections(); await loadDashboardLatest();
+  closeReflectionEditor();setMessage('reflection-message',visibility==='private'?'Reflexão salva em modo privado.':'Reflexão compartilhada com os participantes aprovados.');
+  await loadMyReflection();await loadSharedReflections();await loadDashboardLatest();
  }catch(e){console.error(e);setMessage('reflection-message',`Não foi possível salvar (${e.code||'erro'}).`,true);}finally{$('save').disabled=false;}
 }
 async function loadComments(reflectionId, container){
@@ -203,6 +222,7 @@ async function loadSharedReflections(){
     if(index>0)entry.style.borderTop='1px solid #e2e8f0';
     const author=document.createElement('b');author.textContent=data.ownerName||'Participante';author.style.display='block';author.style.marginBottom='9px';entry.append(author);
     [['O que chamou minha atenção',data.noticed],['O que aprendi',data.learned],['Como vou aplicar',data.application]].forEach(([label,value])=>{if(value){const question=document.createElement('b'),answer=document.createElement('p');question.textContent=label;answer.textContent=value;answer.style.margin='4px 0 10px';entry.append(question,answer);}});
+    if(data.ownerUid===currentUser.uid){const ownActions=document.createElement('div');ownActions.className='form-actions';ownActions.style.margin='8px 0';const editOwn=document.createElement('button'),deleteOwn=document.createElement('button');editOwn.type='button';editOwn.textContent='Editar minha reflexão';editOwn.className='secondary';editOwn.onclick=()=>{const plan=plans.find(p=>p.id===data.planId);if(plan){selectedPlan=plan;selectedWeek=Math.max(0,(Number(data.week)||1)-1);renderPlan();}document.querySelectorAll('nav [data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab==='reflexoes'));document.querySelectorAll('.panel').forEach(panel=>panel.classList.toggle('hidden',panel.id!=='reflexoes'));$('reflection-week').textContent=`${data.planTitle||'Plano de leitura'} · Semana ${data.week||1}`;openReflectionEditor(data,reflectionId);};deleteOwn.type='button';deleteOwn.textContent='Excluir minha reflexão';deleteOwn.className='secondary';deleteOwn.onclick=()=>deleteReflection(reflectionId);ownActions.append(editOwn,deleteOwn);entry.append(ownActions);}
     const commentsArea=document.createElement('div');commentsArea.style.marginTop='12px';
     const commentsTitle=document.createElement('b');commentsTitle.textContent='Comentários';commentsTitle.style.display='block';commentsTitle.style.marginBottom='5px';
     const commentsList=document.createElement('div');commentsList.style.marginBottom='8px';
@@ -217,4 +237,4 @@ async function loadSharedReflections(){
   });
  }catch(e){console.error(e);target.textContent=`Não foi possível carregar as reflexões (${e.code||'erro'}).`;}
 }
-$('login').addEventListener('click',enterWithGoogle);$('logout').addEventListener('click',doLogout);$('pending-logout').addEventListener('click',doLogout);$('rejected-logout').addEventListener('click',doLogout);$('pending-refresh').addEventListener('click',refreshAccess);$('save').addEventListener('click',saveReflection);document.querySelectorAll('nav [data-tab]').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.tab==='reflexoes')loadMyReflection();}));$('week-prev').addEventListener('click',()=>{if(document.getElementById('reflexoes').classList.contains('hidden')===false)loadMyReflection();});$('week-next').addEventListener('click',()=>{if(document.getElementById('reflexoes').classList.contains('hidden')===false)loadMyReflection();});setupTabs();onAuthStateChanged(auth,handleUser);
+$('login').addEventListener('click',enterWithGoogle);$('logout').addEventListener('click',doLogout);$('pending-logout').addEventListener('click',doLogout);$('rejected-logout').addEventListener('click',doLogout);$('pending-refresh').addEventListener('click',refreshAccess);$('save').addEventListener('click',saveReflection);$('reflection-start').addEventListener('click',()=>openReflectionEditor());$('reflection-cancel').addEventListener('click',()=>{closeReflectionEditor();setMessage('reflection-message','Edição cancelada.');});document.querySelectorAll('nav [data-tab]').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.tab==='reflexoes')loadMyReflection();}));$('week-prev').addEventListener('click',()=>{if(document.getElementById('reflexoes').classList.contains('hidden')===false)loadMyReflection();});$('week-next').addEventListener('click',()=>{if(document.getElementById('reflexoes').classList.contains('hidden')===false)loadMyReflection();});setupTabs();onAuthStateChanged(auth,handleUser);
