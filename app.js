@@ -143,11 +143,14 @@ async function loadComments(reflectionId, container){
   if(!snap.size){const empty=document.createElement('small');empty.textContent='Ainda não há comentários. Seja o primeiro a contribuir.';empty.style.color='#64748b';container.append(empty);return;}
   snap.docs.forEach(commentDoc=>{
    const data=commentDoc.data(),row=document.createElement('div');
-   row.style.padding='9px 0';row.style.borderTop='1px solid #e2e8f0';
-   const head=document.createElement('div'),name=document.createElement('b'),date=document.createElement('small');
-   name.textContent=data.ownerName||'Participante';date.textContent=data.createdAt?.toDate?` · ${new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short'}).format(data.createdAt.toDate())}`:'';
-   date.style.color='#64748b';head.append(name,date);
-   const body=document.createElement('p');body.textContent=data.text||'';body.style.margin='5px 0';row.append(head,body);
+   row.style.padding='10px 0';row.style.borderTop='1px solid #e2e8f0';
+   const head=document.createElement('div');head.style.display='flex';head.style.alignItems='center';head.style.gap='9px';
+   const avatar=document.createElement('div');avatar.style.width='36px';avatar.style.height='36px';avatar.style.minWidth='36px';avatar.style.borderRadius='50%';avatar.style.overflow='hidden';avatar.style.background='#e2e8f0';avatar.style.display='flex';avatar.style.alignItems='center';avatar.style.justifyContent='center';avatar.style.fontWeight='700';avatar.style.color='#475569';
+   const ownerName=data.ownerName||'Participante';
+   if(data.photoURL){const photo=document.createElement('img');photo.src=data.photoURL;photo.alt=`Foto de ${ownerName}`;photo.referrerPolicy='no-referrer';photo.style.width='100%';photo.style.height='100%';photo.style.objectFit='cover';photo.onerror=()=>{avatar.replaceChildren();avatar.textContent=ownerName.trim().charAt(0).toUpperCase()||'P';};avatar.append(photo);}else{avatar.textContent=ownerName.trim().charAt(0).toUpperCase()||'P';}
+   const identity=document.createElement('div');identity.style.display='flex';identity.style.flexDirection='column';identity.style.gap='2px';
+   const name=document.createElement('b'),date=document.createElement('small');name.textContent=ownerName;date.textContent=data.createdAt?.toDate?new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short'}).format(data.createdAt.toDate()):'';date.style.color='#64748b';identity.append(name,date);head.append(avatar,identity);
+   const body=document.createElement('p');body.textContent=data.text||'';body.style.margin='7px 0 5px 45px';row.append(head,body);
    if(data.ownerUid===currentUser.uid||isAdmin()){
     const remove=document.createElement('button');remove.type='button';remove.textContent='Excluir';remove.className='secondary';remove.style.fontSize='12px';remove.style.padding='5px 9px';
     remove.addEventListener('click',async()=>{if(!confirm('Excluir este comentário?'))return;try{await deleteDoc(doc(db,'reflections',reflectionId,'comments',commentDoc.id));await loadComments(reflectionId,container);}catch(e){console.error(e);alert(`Não foi possível excluir o comentário (${e.code||'erro'}).`);}});row.append(remove);
@@ -184,7 +187,7 @@ async function loadSharedReflections(){
     const form=document.createElement('form');form.style.display='flex';form.style.gap='8px';form.style.alignItems='stretch';
     const input=document.createElement('input');input.type='text';input.maxLength=1000;input.placeholder='Escreva um comentário...';input.required=true;input.setAttribute('aria-label','Escreva um comentário');input.style.flex='1';input.style.minWidth='0';
     const send=document.createElement('button');send.type='submit';send.textContent='Enviar';
-    form.append(input,send);form.addEventListener('submit',async event=>{event.preventDefault();const text=input.value.trim();if(!text)return;send.disabled=true;try{await addDoc(collection(db,'reflections',reflectionId,'comments'),{ownerUid:currentUser.uid,ownerName:currentUser.displayName||currentMember?.displayName||'Participante',text,createdAt:serverTimestamp()});input.value='';await loadComments(reflectionId,commentsList);}catch(e){console.error(e);alert(`Não foi possível enviar o comentário (${e.code||'erro'}). Verifique as regras do Firestore.`);}finally{send.disabled=false;}});
+    form.append(input,send);form.addEventListener('submit',async event=>{event.preventDefault();const text=input.value.trim();if(!text)return;send.disabled=true;try{await addDoc(collection(db,'reflections',reflectionId,'comments'),{ownerUid:currentUser.uid,ownerName:currentUser.displayName||currentMember?.displayName||'Participante',photoURL:currentUser.photoURL||currentMember?.photoURL||'',text,createdAt:serverTimestamp()});input.value='';await loadComments(reflectionId,commentsList);}catch(e){console.error(e);alert(`Não foi possível enviar o comentário (${e.code||'erro'}). Verifique as regras do Firestore.`);}finally{send.disabled=false;}});
     commentsArea.append(commentsTitle,commentsList,form);entry.append(commentsArea);section.append(entry);
     loadComments(reflectionId,commentsList);
    });
