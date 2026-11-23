@@ -44,3 +44,6 @@ Não convide participantes para usar o novo módulo de leitura até que as regra
 Cada participante registra uma reflexão por semana e por plano. O documento usa um ID determinístico (UID + plano + semana), permitindo editar a reflexão existente sem criar várias publicações. As respostas são divididas em três perguntas e podem ser privadas ou compartilhadas. Não há ranking ou pontuação.
 
 Após enviar os arquivos, publique também o conteúdo atualizado de `firestore.rules` no Firebase Console > Firestore Database > Regras. O Firestore pode solicitar a criação de um índice composto para a consulta de reflexões compartilhadas; siga o link de criação exibido no erro, se aparecer.
+
+## Painel inicial e encontro da célula
+A tela inicial reúne saudação personalizada, leitura da semana, progresso, atalhos para reflexão/comunidade e informações do próximo encontro. O encontro é editável pelo administrador em **ADM → Próximo encontro da célula**. Na primeira abertura, o padrão sugerido é a próxima sexta-feira às 20h, na Casa do José Carlos e da Ilma, Rua Dempachi Nakayama, 634 — Jardim Esperança, Barueri - SP. As alterações são salvas no documento `plans/_app_settings` do Firestore; as regras existentes da coleção `plans` já permitem leitura aos participantes aprovados e gravação aos administradores.

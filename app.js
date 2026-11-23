@@ -20,7 +20,7 @@ const $ = id => document.getElementById(id);
 const show = id => $(id).classList.remove('hidden');
 const hide = id => $(id).classList.add('hidden');
 const setMessage = (id, message, error=false) => { $(id).textContent = message; $(id).classList.toggle('error', error); };
-let currentUser = null, currentMember = null, plans = [], selectedPlan = null, selectedWeek = 0, completed = new Set();
+let currentUser = null, currentMember = null, plans = [], selectedPlan = null, selectedWeek = 0, completed = new Set(), meetingSettings = null;
 const isAdmin = () => currentUser && (currentUser.email?.toLowerCase() === ADMIN_EMAIL || currentMember?.role === 'admin');
 
 const NT_BOOKS = [
@@ -51,7 +51,8 @@ async function handleUser(user) {
     if (currentMember.status==='approved') {
       showOnly('app-area'); $('user-name').textContent=user.displayName||'Participante'; $('user-email').textContent=user.email||'';
       if (isAdmin()) { show('admin-tab'); await loadAdminLists(); } else hide('admin-tab');
-      await loadPlans(); await loadSharedReflections();
+      $('dashboard-greeting').textContent=`Olá, ${(user.displayName||'irmão').split(' ')[0]}!`; if(user.photoURL){$('dashboard-photo').src=user.photoURL;show('dashboard-photo');}
+      await loadMeetingSettings(); await loadPlans(); await loadSharedReflections(); await loadDashboardLatest();
     } else if (currentMember.status==='rejected') showOnly('rejected');
     else { showOnly('pending'); $('pending-email').textContent=user.email||''; }
   } catch(error) { console.error(error); showOnly('welcome'); setMessage('auth-message',`Não foi possível verificar seu acesso (${error.code||'erro'}). Confira as regras do Firestore.`,true); }
@@ -77,8 +78,8 @@ function formatDate(date){return new Intl.DateTimeFormat('pt-BR',{day:'2-digit',
 function weekRange(startDate,index){const start=new Date(`${startDate}T12:00:00Z`);start.setUTCDate(start.getUTCDate()+index*7);const end=new Date(start);end.setUTCDate(end.getUTCDate()+6);return `${formatDate(start)} a ${formatDate(end)}`;}
 async function loadPlans(){
  const target=$('plans-list');target.textContent='Carregando planos...';
- try{const snap=await getDocs(collection(db,'plans'));plans=snap.docs.map(d=>({id:d.id,...d.data()})).filter(p=>p.active!==false).sort((a,b)=>(a.startDate||'').localeCompare(b.startDate||''));
-  target.replaceChildren();if(!plans.length){target.textContent='Ainda não há planos de leitura cadastrados.';return;}
+ try{const snap=await getDocs(collection(db,'plans'));plans=snap.docs.map(d=>({id:d.id,...d.data()})).filter(p=>p.type!=='appSettings' && p.active!==false).sort((a,b)=>(a.startDate||'').localeCompare(b.startDate||''));
+  target.replaceChildren();if(!plans.length){target.textContent='Ainda não há planos de leitura cadastrados.';renderDashboard();return;}
   plans.forEach(p=>{const b=document.createElement('button');b.className='plan-choice'+(selectedPlan?.id===p.id?' active':'');b.textContent=p.title;b.onclick=()=>selectPlan(p);target.append(b);});
   if(!selectedPlan||!plans.some(p=>p.id===selectedPlan.id))await selectPlan(plans[0]);else await selectPlan(plans.find(p=>p.id===selectedPlan.id));
  }catch(e){console.error(e);target.textContent=`Não foi possível carregar os planos (${e.code||'erro'}).`;$('reading-detail').textContent='Confira as regras do Firestore.';}
@@ -95,9 +96,30 @@ function renderPlan(){
  if(!items.length){list.textContent='Não há capítulos nesta semana.';return;}
  items.forEach(item=>{const key=`${item.book}|${item.chapter}`,label=document.createElement('label'),cb=document.createElement('input'),txt=document.createElement('span');cb.type='checkbox';cb.checked=completed.has(key);txt.textContent=`${item.book} ${item.chapter}`;if(cb.checked)txt.className='done';cb.addEventListener('change',()=>toggleChapter(key,cb.checked));label.append(cb,txt);list.append(label);});
  const done=completed.size,total=chapters.length;$('progress-label').textContent=`${done} de ${total} capítulos concluídos`; $('progress-bar').style.width=`${total?Math.min(100,done/total*100):0}%`;
- $('week-prev').disabled=selectedWeek===0;$('week-next').disabled=selectedWeek>=totalWeeks-1;
+ $('week-prev').disabled=selectedWeek===0;$('week-next').disabled=selectedWeek>=totalWeeks-1;renderDashboard();
 }
 async function toggleChapter(key,checked){if(checked)completed.add(key);else completed.delete(key);renderPlan();try{await setDoc(doc(db,'plans',selectedPlan.id,'progress',currentUser.uid),{uid:currentUser.uid,completed:[...completed],updatedAt:serverTimestamp()},{merge:true});}catch(e){console.error(e);alert(`Não foi possível salvar seu progresso (${e.code||'erro'}).`);}}
+const MEETING_DOC = '_app_settings';
+function localISODate(date=new Date()){const y=date.getFullYear(),m=String(date.getMonth()+1).padStart(2,'0'),d=String(date.getDate()).padStart(2,'0');return `${y}-${m}-${d}`;}
+function renderDashboard(){
+ if(!selectedPlan){$('dashboard-plan-title').textContent='Nenhum plano ativo';$('dashboard-week').textContent='Aguarde o administrador cadastrar um plano.';$('dashboard-progress-label').textContent='';$('dashboard-progress-bar').style.width='0%';return;}
+ const chapters=buildChapterList(selectedPlan.bookCounts||[]),perWeek=Math.max(1,Number(selectedPlan.chaptersPerWeek)||3),totalWeeks=Math.ceil(chapters.length/perWeek),items=chapters.slice(selectedWeek*perWeek,(selectedWeek+1)*perWeek),doneWeek=items.filter(x=>completed.has(`${x.book}|${x.chapter}`)).length;
+ $('dashboard-plan-title').textContent=selectedPlan.title;$('dashboard-week').textContent=`Semana ${selectedWeek+1} · ${weekRange(selectedPlan.startDate,selectedWeek)} · ${items.length} capítulos`;$('dashboard-progress-label').textContent=`${doneWeek} de ${items.length} capítulos desta semana concluídos`;$('dashboard-progress-bar').style.width=`${items.length?doneWeek/items.length*100:0}%`;
+}
+async function loadMeetingSettings(){
+ try{const snap=await getDoc(doc(db,'plans',MEETING_DOC));meetingSettings=snap.exists()?snap.data():null;
+  if(!meetingSettings){const next=new Date();const days=(5-next.getDay()+7)%7||7;next.setDate(next.getDate()+days);meetingSettings={date:localISODate(next),time:'20:00',title:'Casa do José Carlos e da Ilma',address:'Rua Dempachi Nakayama, 634 — Jardim Esperança, Barueri - SP'};}
+  $('meeting-date').value=meetingSettings.date||'';$('meeting-time').value=meetingSettings.time||'20:00';$('meeting-title').value=meetingSettings.title||'';$('meeting-address').value=meetingSettings.address||'';renderMeeting();
+ }catch(e){console.error(e);setMessage('meeting-message',`Não foi possível carregar o encontro (${e.code||'erro'}).`,true);}
+}
+function renderMeeting(){const m=meetingSettings||{};const date=m.date?new Date(`${m.date}T12:00:00`):null;$('meeting-date-display').textContent=date?`${new Intl.DateTimeFormat('pt-BR',{weekday:'long',day:'2-digit',month:'long'}).format(date)} · ${m.time||'20:00'}`:`Sexta-feira · ${m.time||'20:00'}`;$('meeting-location-display').textContent=m.title||'Local a confirmar';$('meeting-address-display').textContent=m.address||'';}
+async function saveMeeting(event){event.preventDefault();if(!isAdmin())return;const data={type:'appSettings',date:$('meeting-date').value,time:$('meeting-time').value,title:$('meeting-title').value.trim(),address:$('meeting-address').value.trim(),updatedAt:serverTimestamp(),updatedBy:currentUser.uid};if(!data.date||!data.time||!data.title||!data.address){setMessage('meeting-message','Preencha todos os campos.',true);return;}const btn=$('meeting-save');btn.disabled=true;try{await setDoc(doc(db,'plans',MEETING_DOC),data,{merge:true});meetingSettings=data;renderMeeting();setMessage('meeting-message','Informações do encontro atualizadas!');}catch(e){console.error(e);setMessage('meeting-message',`Não foi possível salvar (${e.code||'erro'}).`,true);}finally{btn.disabled=false;}}
+async function loadDashboardLatest(){const target=$('dashboard-latest');try{const q=query(collection(db,'reflections'),where('visibility','==','shared'),orderBy('updatedAt','desc'),limit(3));const snap=await getDocs(q);target.replaceChildren();if(!snap.size){target.textContent='Ainda não há reflexões compartilhadas.';return;}snap.docs.forEach(d=>{const x=d.data(),card=document.createElement('article');card.className='latest-reflection';const author=document.createElement('b'),body=document.createElement('p');author.textContent=x.ownerName||'Participante';body.textContent=x.noticed||x.learned||x.application||'Compartilhou uma reflexão da caminhada.';card.append(author,body);target.append(card);});}catch(e){console.error(e);target.textContent='Não foi possível carregar as últimas reflexões.';}}
+$('dashboard-continue').addEventListener('click',()=>document.querySelector('nav [data-tab="leitura"]').click());
+$('dashboard-reflection').addEventListener('click',()=>document.querySelector('nav [data-tab="reflexoes"]').click());
+$('dashboard-community').addEventListener('click',()=>document.querySelector('nav [data-tab="reflexoes"]').click());
+$('meeting-form').addEventListener('submit',saveMeeting);
+
 async function createPlan(event){event.preventDefault();if(!isAdmin())return;const btn=$('create-plan');btn.disabled=true;setMessage('plan-message','Salvando plano...');
  try{const bookCounts=parseBookLines($('plan-books').value);if(!bookCounts.length)throw new Error('Informe ao menos um livro e sua quantidade de capítulos.');const startDate=$('plan-start').value;if(!startDate)throw new Error('Informe a data de início.');const chaptersPerWeek=Number($('plan-rate').value);if(!Number.isInteger(chaptersPerWeek)||chaptersPerWeek<1||chaptersPerWeek>30)throw new Error('Informe de 1 a 30 capítulos por semana.');
  const data={title:$('plan-title').value.trim(),description:$('plan-description').value.trim(),startDate,chaptersPerWeek,bookCounts,active:true,createdBy:currentUser.uid,createdAt:serverTimestamp(),updatedAt:serverTimestamp()};if(!data.title)throw new Error('Informe o nome do plano.');await addDoc(collection(db,'plans'),data);setMessage('plan-message','Plano criado com sucesso!');$('create-plan-form').reset();$('plan-rate').value='3';await loadPlans();
@@ -132,7 +154,7 @@ async function saveReflection(){
   const ref=doc(db,'reflections',reflectionDocId());
   await setDoc(ref,{ownerUid:currentUser.uid,ownerName:currentUser.displayName||'Participante',noticed,learned,application,visibility,planId:selectedPlan.id,planTitle:selectedPlan.title,week:selectedWeek+1,updatedAt:serverTimestamp()},{merge:true});
   setMessage('reflection-message',visibility==='private'?'Reflexão salva em modo privado.':'Reflexão compartilhada com os participantes aprovados. Você poderá editá-la durante a semana.');
-  await loadSharedReflections();
+  await loadSharedReflections(); await loadDashboardLatest();
  }catch(e){console.error(e);setMessage('reflection-message',`Não foi possível salvar (${e.code||'erro'}).`,true);}finally{$('save').disabled=false;}
 }
 async function loadComments(reflectionId, container){
