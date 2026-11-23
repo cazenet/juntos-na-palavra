@@ -1,1 +1,30 @@
-{"name": "Juntos na Palavra — Célula Adonai", "short_name": "Juntos Palavra", "start_url": "./", "display": "standalone", "background_color": "#f2f5f8", "theme_color": "#102a43"}
+{
+  "name": "Juntos na Palavra — Célula Adonai",
+  "short_name": "Juntos na Palavra",
+  "description": "Uma caminhada de fé, conhecimento e comunhão.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#08234b",
+  "theme_color": "#08234b",
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
