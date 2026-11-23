@@ -1,6 +1,6 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
-import { getFirestore, doc, getDoc, setDoc, serverTimestamp, collection, getDocs, addDoc, orderBy, limit, updateDoc, where, query } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+import { getFirestore, doc, getDoc, setDoc, serverTimestamp, collection, getDocs, addDoc, orderBy, limit, updateDoc, deleteDoc, where, query } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyATS5VOruDe2c_EVKuxErjR6ZKru_Y3NS8",
@@ -135,65 +135,58 @@ async function saveReflection(){
   await loadSharedReflections();
  }catch(e){console.error(e);setMessage('reflection-message',`Não foi possível salvar (${e.code||'erro'}).`,true);}finally{$('save').disabled=false;}
 }
+async function loadComments(reflectionId, container){
+ container.textContent='Carregando comentários...';
+ try{
+  const commentsQuery=query(collection(db,'reflections',reflectionId,'comments'),orderBy('createdAt','asc'));
+  const snap=await getDocs(commentsQuery);container.replaceChildren();
+  if(!snap.size){const empty=document.createElement('small');empty.textContent='Ainda não há comentários. Seja o primeiro a contribuir.';empty.style.color='#64748b';container.append(empty);return;}
+  snap.docs.forEach(commentDoc=>{
+   const data=commentDoc.data(),row=document.createElement('div');
+   row.style.padding='9px 0';row.style.borderTop='1px solid #e2e8f0';
+   const head=document.createElement('div'),name=document.createElement('b'),date=document.createElement('small');
+   name.textContent=data.ownerName||'Participante';date.textContent=data.createdAt?.toDate?` · ${new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short'}).format(data.createdAt.toDate())}`:'';
+   date.style.color='#64748b';head.append(name,date);
+   const body=document.createElement('p');body.textContent=data.text||'';body.style.margin='5px 0';row.append(head,body);
+   if(data.ownerUid===currentUser.uid||isAdmin()){
+    const remove=document.createElement('button');remove.type='button';remove.textContent='Excluir';remove.className='secondary';remove.style.fontSize='12px';remove.style.padding='5px 9px';
+    remove.addEventListener('click',async()=>{if(!confirm('Excluir este comentário?'))return;try{await deleteDoc(doc(db,'reflections',reflectionId,'comments',commentDoc.id));await loadComments(reflectionId,container);}catch(e){console.error(e);alert(`Não foi possível excluir o comentário (${e.code||'erro'}).`);}});row.append(remove);
+   }
+   container.append(row);
+  });
+ }catch(e){console.error(e);container.textContent=`Não foi possível carregar os comentários (${e.code||'erro'}).`;}
+}
 async function loadSharedReflections(){
  const target=$('shared-reflections');target.textContent='Carregando reflexões...';
  try{
   const q=query(collection(db,'reflections'),where('visibility','==','shared'),orderBy('updatedAt','desc'),limit(30));
   const results=await getDocs(q);target.replaceChildren();
   if(!results.size){target.textContent='Ainda não há reflexões compartilhadas.';return;}
-
-  // Agrupa as reflexões por plano e semana, mantendo cada participante em sequência.
   const groups=new Map();
   results.docs.forEach(d=>{
-   const data=d.data();
-   const planId=data.planId||data.planTitle||'plano-sem-identificacao';
-   const weekNumber=Number(data.week)||0;
-   const key=`${planId}__${weekNumber}`;
+   const data=d.data(),planId=data.planId||data.planTitle||'plano-sem-identificacao',weekNumber=Number(data.week)||0,key=`${planId}__${weekNumber}`;
    if(!groups.has(key))groups.set(key,{planTitle:data.planTitle||'Plano de leitura',week:weekNumber,entries:[]});
-   groups.get(key).entries.push(data);
+   groups.get(key).entries.push({id:d.id,data});
   });
-
   const orderedGroups=[...groups.values()].sort((a,b)=>a.planTitle.localeCompare(b.planTitle,'pt-BR')||b.week-a.week);
   orderedGroups.forEach(group=>{
-   const section=document.createElement('section');
-   section.className='reflection-week-group';
-   section.style.marginBottom='18px';
-
-   const heading=document.createElement('h3');
-   heading.textContent=group.week?`Semana ${group.week}`:'Semana não identificada';
-   heading.style.margin='0 0 6px';
-   section.append(heading);
-
-   const planMeta=document.createElement('small');
-   planMeta.textContent=group.planTitle;
-   planMeta.style.display='block';
-   planMeta.style.marginBottom='10px';
-   planMeta.style.color='#64748b';
-   section.append(planMeta);
-
-   group.entries.forEach((data,index)=>{
-    const entry=document.createElement('article');
-    entry.className='reflection-entry';
-    entry.style.padding='12px 4px';
+   const section=document.createElement('section');section.className='reflection-week-group';section.style.marginBottom='18px';
+   const heading=document.createElement('h3');heading.textContent=group.week?`Semana ${group.week}`:'Semana não identificada';heading.style.margin='0 0 6px';section.append(heading);
+   const planMeta=document.createElement('small');planMeta.textContent=group.planTitle;planMeta.style.display='block';planMeta.style.marginBottom='10px';planMeta.style.color='#64748b';section.append(planMeta);
+   group.entries.forEach((entryData,index)=>{
+    const {id:reflectionId,data}=entryData,entry=document.createElement('article');entry.className='reflection-entry';entry.style.padding='12px 4px';
     if(index>0)entry.style.borderTop='1px solid #e2e8f0';
-
-    const author=document.createElement('b');
-    author.textContent=data.ownerName||'Participante';
-    author.style.display='block';
-    author.style.marginBottom='9px';
-    entry.append(author);
-
-    [['O que chamou minha atenção',data.noticed],['O que aprendi',data.learned],['Como vou aplicar',data.application]].forEach(([label,value])=>{
-     if(value){
-      const question=document.createElement('b');
-      const answer=document.createElement('p');
-      question.textContent=label;
-      answer.textContent=value;
-      answer.style.margin='4px 0 10px';
-      entry.append(question,answer);
-     }
-    });
-    section.append(entry);
+    const author=document.createElement('b');author.textContent=data.ownerName||'Participante';author.style.display='block';author.style.marginBottom='9px';entry.append(author);
+    [['O que chamou minha atenção',data.noticed],['O que aprendi',data.learned],['Como vou aplicar',data.application]].forEach(([label,value])=>{if(value){const question=document.createElement('b'),answer=document.createElement('p');question.textContent=label;answer.textContent=value;answer.style.margin='4px 0 10px';entry.append(question,answer);}});
+    const commentsArea=document.createElement('div');commentsArea.style.marginTop='12px';
+    const commentsTitle=document.createElement('b');commentsTitle.textContent='Comentários';commentsTitle.style.display='block';commentsTitle.style.marginBottom='5px';
+    const commentsList=document.createElement('div');commentsList.style.marginBottom='8px';
+    const form=document.createElement('form');form.style.display='flex';form.style.gap='8px';form.style.alignItems='stretch';
+    const input=document.createElement('input');input.type='text';input.maxLength=1000;input.placeholder='Escreva um comentário...';input.required=true;input.setAttribute('aria-label','Escreva um comentário');input.style.flex='1';input.style.minWidth='0';
+    const send=document.createElement('button');send.type='submit';send.textContent='Enviar';
+    form.append(input,send);form.addEventListener('submit',async event=>{event.preventDefault();const text=input.value.trim();if(!text)return;send.disabled=true;try{await addDoc(collection(db,'reflections',reflectionId,'comments'),{ownerUid:currentUser.uid,ownerName:currentUser.displayName||currentMember?.displayName||'Participante',text,createdAt:serverTimestamp()});input.value='';await loadComments(reflectionId,commentsList);}catch(e){console.error(e);alert(`Não foi possível enviar o comentário (${e.code||'erro'}). Verifique as regras do Firestore.`);}finally{send.disabled=false;}});
+    commentsArea.append(commentsTitle,commentsList,form);entry.append(commentsArea);section.append(entry);
+    loadComments(reflectionId,commentsList);
    });
    target.append(section);
   });
